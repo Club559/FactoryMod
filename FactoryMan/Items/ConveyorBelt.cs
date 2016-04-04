@@ -31,6 +31,7 @@ namespace FactoryMan.Items
       MaxStackSize = 999;
       fragility = fragility_Removable;
       Rotation = 0;
+      Items = new List<Debris>();
 
       type = "Crafting";
     }
@@ -51,6 +52,7 @@ namespace FactoryMan.Items
     public int RegisteredId { get; set; }
     public Rectangle SourceRect { get; set; }
     public int Rotation { get; set; }
+    public List<Debris> Items { get; set; }
 
     public int MaxStackSize { get; set; }
 
@@ -101,6 +103,8 @@ namespace FactoryMan.Items
         else
           spriteBatch.Draw(FactoryMan.ItemTextures[Texture], Game1.GlobalToLocal(Game1.viewport, new Vector2(x * Game1.tileSize + Game1.tileSize / 2 + (shakeTimer > 0 ? Game1.random.Next(-1, 2) : 0), y * Game1.tileSize + Game1.tileSize / 2 + (shakeTimer > 0 ? Game1.random.Next(-1, 2) : 0))), this.getSourceRect(), Color.White * alpha, 0f, new Vector2(8f, 8f), scale.Y > 1f ? getScale().Y : Game1.pixelZoom, flipped ? SpriteEffects.FlipHorizontally : SpriteEffects.None, 1E-09f);
       }
+      foreach(var debris in this.Items)
+        debris.item.drawInMenu(spriteBatch, Game1.GlobalToLocal(Game1.viewport, debris.Chunks[0].position), (float)(0.800000011920929 + (double)debris.itemQuality * 0.100000001490116), 1f, (float)(((double)(debris.chunkFinalYLevel + Game1.tileSize) + (double)debris.Chunks[0].position.X / 10000.0) / 10000.0), false);
       if (!this.readyForHarvest)
         return;
       float num = (float)(4.0 * Math.Round(Math.Sin(DateTime.Now.TimeOfDay.TotalMilliseconds / 250.0), 2));
@@ -335,151 +339,158 @@ namespace FactoryMan.Items
       }
     }
 
-    [XmlIgnore]
-    int ticksUntilExtract = 60;
     public override void updateWhenCurrentLocation(GameTime time)
     {
       didToolActionThisTick = false;
+      updateConveyorBelt(Game1.currentLocation);
+      base.updateWhenCurrentLocation(time);
+    }
+
+    [XmlIgnore]
+    int ticksUntilExtract = 60;
+    public void updateConveyorBelt(GameLocation location)
+    {
+      if (Game1.paused)
+        return;
+      bool isCurrentLocation = (Game1.currentLocation == location);
       int destX = Rotation == 0 ? 1 : Rotation == 2 ? -1 : 0;
       int destY = Rotation == 1 ? 1 : Rotation == 3 ? -1 : 0;
-      Rectangle thisTilePos = new Rectangle((int)PlacedAt.X * Game1.tileSize, (int)PlacedAt.Y * Game1.tileSize, Game1.tileSize, Game1.tileSize);
+      Rectangle thisTileRect = new Rectangle((int)PlacedAt.X * Game1.tileSize, (int)PlacedAt.Y * Game1.tileSize, Game1.tileSize, Game1.tileSize);
+      Point posFront = new Point(thisTileRect.X + (destX * Game1.tileSize), thisTileRect.Y + (destY * Game1.tileSize));
+      Point posBack = new Point(thisTileRect.X - (destX * Game1.tileSize), thisTileRect.Y - (destY * Game1.tileSize));
+      Object destinationObject = location.getObjectAt(posFront.X, posFront.Y);
+      Object connectedObject = location.getObjectAt(posBack.X, posBack.Y);
       List<Debris> removedDebris = new List<Debris>();
-      foreach (var i in Game1.currentLocation.debris)
-      {
-        for (var c = 0; c < i.Chunks.Count; c++)
+      foreach (var i in location.debris)
+        if (i.item != null && i.Chunks[0].yVelocity == 0 && thisTileRect.Contains((int)i.Chunks[0].position.X + Game1.tileSize, (int)i.Chunks[0].position.Y + Game1.tileSize))
         {
-          if (i.item != null && i.Chunks[c].yVelocity == 0 && thisTilePos.Contains((int)i.Chunks[c].position.X + Game1.tileSize, (int)i.Chunks[c].position.Y + Game1.tileSize))
+          this.Items.Add(createConveyorItem(i.item, i.Chunks[0].position));
+          removedDebris.Add(i);
+        }
+      foreach (var i in removedDebris)
+        location.debris.Remove(i);
+      removedDebris.Clear();
+      foreach (var debris in this.Items)
+      {
+        Chunk chunk = debris.Chunks[0];
+        if (destinationObject != null)
+        {
+          if (destinationObject is Chest)
           {
-            float oldChunkX = i.Chunks[c].position.X;
-            float oldChunkY = i.Chunks[c].position.Y;
-            if (destX != 0 && destY == 0)
+            Chest chest = destinationObject as Chest;
+            Item oldItem = debris.item;
+            Item newItem = chest.addItem(debris.item);
+            if (newItem == null)
             {
-              if (i.Chunks[c].position.Y + Game1.tileSize < thisTilePos.Y + Game1.tileSize / 2)
-              {
-                i.Chunks[c].position.Y++;
-                if (i.Chunks[c].position.Y + Game1.tileSize > thisTilePos.Y + Game1.tileSize / 2)
-                  i.Chunks[c].position.Y = thisTilePos.Y + Game1.tileSize / 2 - Game1.tileSize;
-              }
-              else if (i.Chunks[c].position.Y + Game1.tileSize > thisTilePos.Y + Game1.tileSize / 2)
-              {
-                i.Chunks[c].position.Y--;
-                if (i.Chunks[c].position.Y + Game1.tileSize < thisTilePos.Y + Game1.tileSize / 2)
-                  i.Chunks[c].position.Y = thisTilePos.Y + Game1.tileSize / 2 - Game1.tileSize;
-              }
-              else
-              {
-                i.Chunks[c].position.X += destX;
-                i.Chunks[c].position.Y += destY;
-              }
-            }
-            else if(destX == 0 && destY != 0)
-            {
-              if (i.Chunks[c].position.X + Game1.tileSize < thisTilePos.X + Game1.tileSize / 2)
-              {
-                i.Chunks[c].position.X++;
-                if (i.Chunks[c].position.X + Game1.tileSize > thisTilePos.X + Game1.tileSize / 2)
-                  i.Chunks[c].position.X = thisTilePos.X + Game1.tileSize / 2 - Game1.tileSize;
-              }
-              else if (i.Chunks[c].position.X + Game1.tileSize > thisTilePos.X + Game1.tileSize / 2)
-              {
-                i.Chunks[c].position.X--;
-                if (i.Chunks[c].position.X + Game1.tileSize < thisTilePos.X + Game1.tileSize / 2)
-                  i.Chunks[c].position.X = thisTilePos.X + Game1.tileSize / 2 - Game1.tileSize;
-              }
-              else
-              {
-                i.Chunks[c].position.X += destX;
-                i.Chunks[c].position.Y += destY;
-              }
-            }
-            Point newChunkPos = new Point((int)i.Chunks[c].position.X + Game1.tileSize + destX, (int)i.Chunks[c].position.Y + Game1.tileSize + destY);
-            bool canMoveForward = false;
-            Object destinationObject = Game1.currentLocation.getObjectAt(newChunkPos.X, newChunkPos.Y);
-            if (destinationObject != null)
-            {
-              if (destinationObject is Chest)
-              {
-                Chest chest = destinationObject as Chest;
-                Item oldItem = i.item;
-                Item newItem = chest.addItem(i.item);
-                if (newItem == null)
-                {
-                  Game1.playSound("Ship");
-                  removedDebris.Add(i);
-                  canMoveForward = true;
-                }
-                else if (newItem.Stack != oldItem.Stack)
-                {
-                  Game1.playSound("Ship");
-                  i.item = newItem;
-                  canMoveForward = true;
-                }
-              }
-              else if ((i.item is Object) && destinationObject.performObjectDropInAction(i.item as Object, true, Game1.player))
-              {
-                destinationObject.performObjectDropInAction(i.item as Object, false, Game1.player);
+              if (isCurrentLocation)
                 Game1.playSound("Ship");
-                i.item.Stack--;
-                if (i.item.Stack <= 0)
-                  removedDebris.Add(i);
-                canMoveForward = true;
-              }
-              else if (destinationObject is ConveyorBelt)
-                canMoveForward = true;
+              removedDebris.Add(debris);
             }
-            else if((i.item is Object) && (Game1.currentLocation is Farm) && !(newChunkPos.X / Game1.tileSize < 71 || (newChunkPos.X / Game1.tileSize > 72 || newChunkPos.Y / Game1.tileSize < 13) || (newChunkPos.Y / Game1.tileSize > 14 || !(i.item as Object).canBeShipped())))
+            else if (newItem.Stack != oldItem.Stack)
             {
-              (Game1.currentLocation as Farm).shippingBin.Add(i.item);
-              (Game1.currentLocation as Farm).lastItemShipped = i.item;
-              (Game1.currentLocation as Farm).showShipment(i.item as Object, false);
-              removedDebris.Add(i);
-              canMoveForward = true;
-            }
-            if(!canMoveForward && !thisTilePos.Contains((int)i.Chunks[c].position.X + Game1.tileSize, (int)i.Chunks[c].position.Y + Game1.tileSize))
-            {
-              i.Chunks[c].position.X = oldChunkX;
-              i.Chunks[c].position.Y = oldChunkY;
+              if (isCurrentLocation)
+                Game1.playSound("Ship");
+              debris.item = newItem;
             }
           }
+          else if ((debris.item is Object) && destinationObject.performObjectDropInAction(debris.item as Object, true, Game1.player))
+          {
+            destinationObject.performObjectDropInAction(debris.item as Object, false, Game1.player);
+            if (isCurrentLocation)
+              Game1.playSound("Ship");
+            debris.item.Stack--;
+            if (debris.item.Stack <= 0)
+              removedDebris.Add(debris);
+          }
+          else if (destinationObject is ConveyorBelt && !(destinationObject as ConveyorBelt).hasConveyorItemAt((int)chunk.position.X + (destX * Game1.tileSize), (int)chunk.position.Y + (destY * Game1.tileSize)))//!(destinationObject as ConveyorBelt).doesDebrisIntersect(new Rectangle((int)chunk.position.X + destX, (int)chunk.position.Y + destY, Game1.tileSize, Game1.tileSize)))
+          {
+            if (!hasConveyorItemAt((int)chunk.position.X + (destX * Game1.tileSize), (int)chunk.position.Y + (destY * Game1.tileSize), debris))
+            {
+              chunk.position.X += destX;
+              chunk.position.Y += destY;
+            }
+            if ((destX != 0 && chunk.position.X == posFront.X) || (destY != 0 && chunk.position.Y == posFront.Y))
+            {
+              (destinationObject as ConveyorBelt).Items.Add(debris);
+              removedDebris.Add(debris);
+            }
+          }
+        }
+        else if ((debris.item is Object) && (location is Farm) && !(posFront.X / Game1.tileSize < 71 || (posFront.X / Game1.tileSize > 72 || posFront.Y / Game1.tileSize < 13) || (posFront.Y / Game1.tileSize > 14 || !(debris.item as Object).canBeShipped())))
+        {
+          (location as Farm).shippingBin.Add(debris.item);
+          (location as Farm).lastItemShipped = debris.item;
+          (location as Farm).showShipment(debris.item as Object, false);
+          removedDebris.Add(debris);
         }
       }
       foreach (var i in removedDebris)
-        Game1.currentLocation.debris.Remove(i);
-      Object connectedObject = Game1.currentLocation.getObjectAt((int)(PlacedAt.X - destX) * Game1.tileSize, (int)(PlacedAt.Y - destY) * Game1.tileSize);
-      if (ticksUntilExtract == 0)
+        this.Items.Remove(i);
+      Vector2 placementPos = new Vector2(thisTileRect.X, thisTileRect.Y);
+      if (!doesDebrisIntersect(new Rectangle((int)placementPos.X, (int)placementPos.Y, Game1.tileSize, Game1.tileSize)) && connectedObject != null)
       {
-        ticksUntilExtract = 60;
-        if (connectedObject != null)
+        if (connectedObject.heldObject != null && connectedObject.readyForHarvest)
         {
-          if (connectedObject.heldObject != null && connectedObject.readyForHarvest)
-          {
-            Debris item = new Debris(-2, 1, new Vector2(PlacedAt.X * Game1.tileSize, PlacedAt.Y * Game1.tileSize), new Vector2(PlacedAt.X * Game1.tileSize, PlacedAt.Y * Game1.tileSize), 0.1f);
-            item.item = connectedObject.heldObject;
-            Game1.currentLocation.debris.Add(item);
-            connectedObject.heldObject = null;
-            connectedObject.readyForHarvest = false;
-          }
-          else if(connectedObject is Chest)
-          {
-            Chest chest = connectedObject as Chest;
-            for(var i = 0; i < chest.items.Count; i++)
-              if(chest.items[i] != null && chest.items[i].Stack > 0)
-              {
-                Debris item = new Debris(-2, 1, new Vector2(PlacedAt.X * Game1.tileSize, PlacedAt.Y * Game1.tileSize), new Vector2(PlacedAt.X * Game1.tileSize, PlacedAt.Y * Game1.tileSize), 0.1f);
-                item.item = chest.items[i].getOne();
-                item.item.Stack = Math.Min(5, chest.items[i].Stack);
-                Game1.currentLocation.debris.Add(item);
-                chest.items[i].Stack -= item.item.Stack;
-                if(chest.items[i].Stack <= 0)
-                  chest.items[i] = null;
-                break;
-              }
-          }
+          Debris item = createConveyorItem(connectedObject.heldObject, placementPos);
+          this.Items.Add(item);
+          connectedObject.heldObject = null;
+          connectedObject.readyForHarvest = false;
+        }
+        else if (connectedObject is Chest)
+        {
+          Chest chest = connectedObject as Chest;
+          for (var i = 0; i < chest.items.Count; i++)
+            if (chest.items[i] != null && chest.items[i].Stack > 0)
+            {
+              Debris item = createConveyorItem(chest.items[i].getOne(), placementPos);
+              this.Items.Add(item);
+              chest.items[i].Stack--;
+              if (chest.items[i].Stack <= 0)
+                chest.items[i] = null;
+              break;
+            }
         }
       }
-      else
-        ticksUntilExtract--;
-      base.updateWhenCurrentLocation(time);
+    }
+
+    public bool doesDebrisIntersect(Rectangle rect, Debris self=null)
+    {
+      foreach (var debris in this.Items)
+      {
+        if (debris.item == null || debris.item.Stack <= 0)
+          continue;
+        if (self != null && debris == self)
+          continue;
+        var chunk = debris.Chunks[0];
+        Rectangle thisDebrisRect = new Rectangle((int)chunk.position.X, (int)chunk.position.Y, Game1.tileSize, Game1.tileSize);
+        if (thisDebrisRect.Intersects(rect))
+          return true;
+      }
+      return false;
+    }
+
+    public bool hasConveyorItemAt(int x, int y, Debris exclude=null)
+    {
+      foreach (var debris in this.Items)
+      {
+        if (debris.item == null || debris.item.Stack <= 0)
+          continue;
+        if (exclude != null && debris == exclude)
+          continue;
+        var chunk = debris.Chunks[0];
+        //Rectangle thisDebrisRect = new Rectangle((int)chunk.position.X, (int)chunk.position.Y, Game1.tileSize, Game1.tileSize);
+        if (chunk.position.X == x && chunk.position.Y == y)
+          return true;
+      }
+      return false;
+    }
+
+    public Debris createConveyorItem(Item item, Vector2 pos)
+    {
+      Debris ret = new Debris(-2, 1, pos, pos, 0f);
+      ret.item = item;
+      ret.Chunks[0].position += new Vector2(Game1.tileSize / 2, Game1.tileSize / 2);
+      return ret;
     }
 
     public override bool minutesElapsed(int minutes, GameLocation environment)
@@ -502,10 +513,11 @@ namespace FactoryMan.Items
     {
       if (didToolActionThisTick)
       {
-        if (this.type == "Crafting")
-          environment.debris.Add(new Debris(getOne(), Game1.player.GetToolLocation(true)));
+        environment.debris.Add(new Debris(getOne(), Game1.player.GetToolLocation(true)));
         this.fragility = 2;
       }
+      foreach(var debris in this.Items)
+        environment.debris.Add(new Debris(debris.item, debris.Chunks[0].position));
       base.performRemoveAction(tileLocation, environment);
     }
   }

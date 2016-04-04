@@ -100,10 +100,11 @@ namespace FactoryMan
 
     private void GameEvents_UpdateTick(object sender, EventArgs e)
     {
-      if(Game1.currentLocation != null)
-      {
-
-      }
+      foreach (var i in Game1.locations)
+        if (Game1.currentLocation != i)
+          foreach (var o in i.Objects)
+            if (o.Value is ConveyorBelt)
+              (o.Value as ConveyorBelt).updateConveyorBelt(i);
     }
 
     private void GameEvents_LoadContent(object sender, EventArgs e)
